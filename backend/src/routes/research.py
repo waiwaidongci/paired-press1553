@@ -1,4 +1,4 @@
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,Header
 from fastapi.responses import Response
 from sqlalchemy import select
 from src.config.database import get_db
@@ -37,7 +37,9 @@ def remove(id:int,row_id:int,db=Depends(get_db),user=Depends(writer)):
 @router.get('/runs')
 def list_runs(db=Depends(get_db),user=Depends(current_user)): return runs.list_runs(db)
 @router.post('/runs')
-def create_run(data:RunInput,db=Depends(get_db),user=Depends(writer)): return research.create_run(db,data,user)
+def create_run(data:RunInput,db=Depends(get_db),user=Depends(writer),idempotency_key:str|None=Header(None,max_length=64)):
+    key=idempotency_key.strip() if idempotency_key else None
+    return research.create_run(db,data,user,key or None)
 @router.get('/runs/{id}')
 def get_run(id:int,db=Depends(get_db),user=Depends(current_user)): return runs.get(db,id)
 @router.post('/runs/{id}/review')

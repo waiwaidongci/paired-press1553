@@ -44,10 +44,10 @@ services:
       retries: 40
   worker:
     build: ./backend
-    container_name: ${COMPOSE_PROJECT_NAME:-paired-press}-worker
     command: python -m src.worker
     environment: *app-env
     volumes: ["run-artifacts:/app/artifacts"]
+    deploy: {replicas: 2}
     depends_on:
       backend: {condition: service_healthy}
       db: {condition: service_healthy}

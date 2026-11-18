@@ -1,4 +1,4 @@
-from sqlalchemy import Column,Integer,String,JSON,Text,ForeignKey
+from sqlalchemy import Column,Integer,String,JSON,Text,Float,ForeignKey,Index
 from src.config.database import Base
 class PairedRun(Base):
     __tablename__='runs'
@@ -12,4 +12,13 @@ class PairedRun(Base):
     result=Column(JSON,nullable=True)
     error=Column(Text,default='')
     created_at=Column(String(40),nullable=False)
+    # Idempotent acceptance: retries with the same key return the original run.
+    request_key=Column(String(64),nullable=True)
+    request_hash=Column(String(64),nullable=True)
+    # Reliable execution: claim_seq is the fencing token, lease_until the epoch deadline.
+    claim_seq=Column(Integer,nullable=False,default=0)
+    claimed_by=Column(String(80),nullable=True)
+    lease_until=Column(Float,nullable=True)
+    finished_at=Column(String(40),nullable=True)
+    __table_args__=(Index('runs_request_key_key','request_key',unique=True),)
 Run=PairedRun

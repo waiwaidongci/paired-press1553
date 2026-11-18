@@ -11,6 +11,7 @@
 - 试印研究、成对纸样录入/编辑/删除；重名记录与非法数值明确拒绝。
 - 配对差均值与精确符号翻转置换检验。同一纸张上成对测量；小样本枚举全部符号，较大样本使用固定种子 Monte Carlo 与加一校正。
 - 每次运行冻结参数、观测和SHA256。Redis任务由独立worker计算，写DB与共享产物卷；输入修改不会改写历史结果。
+- 受理即可靠完成：受理请求带幂等键，重试返回原运行、同键换输入409拒绝；数据库为事实源，Redis仅作唤醒，投递失败或消息丢失由补投器自动重投；多worker并发认领（围栏序号+租约），长计算心跳持有，失联可被接手，旧执行者恢复后无法覆盖接手结果与归档；先核验数据库结果与计算留档，再单事务原子切换为可查看/可获批导出，中断可恢复、不发布半份结果。
 - 负责人复核不可覆盖；审计记录登录、数据改动、排队、复核与导出；240请求/分钟限流、全局可恢复错误。
 
 ## 快速启动
@@ -44,7 +45,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 |API|Python3.11、FastAPI0.115、SQLAlchemy2、JWT、PBKDF2密码|
 |计算|NumPy2.2、SciPy1.15，固定seed42|
 |数据库|PostgreSQL16|
-|任务|Redis7持久队列，Python独立worker，心跳healthcheck|
+|任务|Redis7可靠队列（BLMOVE+补投），Python多worker并发（默认2副本），租约/心跳/围栏认领|
 
 `frontend/src/`分api、stores、types、components/common、hooks、pages、router、utils、constants；`backend/src/`分config、models、schemas、services、controllers、routes、middlewares、utils、constants；`backend/scripts/seed_demo.py`自然键插入、重复不覆盖修改；`backend/migrations/README.md`说明schema版本。
 
@@ -55,6 +56,6 @@ docker compose exec -T backend python -m scripts.seed_demo
 ## 算法输入、失败态与复现
 输入为选定批次全部观测和参数，输出核心数值、明细、解释；参数经后端严格白名单和范围验证。同一纸张上成对测量；小样本枚举全部符号，较大样本使用固定种子 Monte Carlo 与加一校正。。空批次拒绝；不完整字段/非有限数/非法计数拒绝；常量相关列与不足样本使任务failed并保留错误。固定seed42、输入checksum相同可复现。独立oracle：小n穷举手算；交换两列统计量变号p相同；缺失配对拒绝。
 
-已知边界：小型本地研究应用，使用合成数据，不含企业SSO与外发邮件；结果由人工复核，不自动执行业务决策；单worker恢复queued/running任务，数据库与Redis间未采用分布式事务。以当前测试目录TESTING.md记录实际验证结果。
+已知边界：小型本地研究应用，使用合成数据，不含企业SSO与外发邮件；结果由人工复核，不自动执行业务决策；数据库为运行状态唯一事实源，Redis消息丢失可由补投器重建，计算本身不存检查点（中断后由认领者整体重算，确定性算法保证归档字节一致）。`backend/tests/TESTING.md`记录实际验证结果。
 
 MIT License。

@@ -4,4 +4,4 @@ export async function request(path,options={}) {
  if(!response.ok){const x=await response.json().catch(()=>({detail:'网络错误，请重试'}));if(response.status===401 && !path.includes('login')){localStorage.clear();location.reload();}throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));}
  return response.headers.get('content-type')?.includes('text/csv')?response.blob():response.json();
 }
-export const post=(path,body)=>request(path,{method:'POST',body:JSON.stringify(body)});
+export const post=(path,body,headers)=>request(path,{method:'POST',body:JSON.stringify(body),headers});

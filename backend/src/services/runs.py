@@ -1,25 +1,42 @@
-import os,json,csv,io
-from pathlib import Path
-from redis import Redis
+import json,csv,io,logging
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from src.models.run import Run
 from src.models.review import Review
-from src.services import studies
+from src.services import studies,queueing
 from src.services.domain_validation import validate_parameters
 from src.services.audits import log
 from src.utils.serializers import record,now,checksum
 
-def create(db,data,user):
+def _request_hash(data,params):
+    return checksum({'study_id':data.study_id,'name':data.name,'parameters':params})
+
+def create(db,data,user,request_key=None):
     studies.require(db,data.study_id)
     rows=studies.observations(db,data.study_id)
     if not rows: raise HTTPException(422,'先录入至少一条业务观测')
     try: params=validate_parameters(data.parameters)
     except (ValueError,TypeError) as e: raise HTTPException(422,str(e))
+    request_hash=_request_hash(data,params) if request_key else None
+    if request_key:
+        existing=db.scalar(select(Run).where(Run.request_key==request_key))
+        if existing:
+            if existing.request_hash!=request_hash: raise HTTPException(409,'同一请求已受理且输入已冻结，换输入请修改表单后重新提交')
+            return record(existing)
     snapshot=[{'source_key':x['source_key'],'values':x['values']} for x in rows]
-    run=Run(study_id=data.study_id,name=data.name,parameters=params,snapshot=snapshot,checksum=checksum(snapshot),created_at=now(),status='queued')
-    db.add(run);db.flush();log(db,user,'run.queue',str(run.id));db.commit()
-    Redis.from_url(os.environ['REDIS_URL']).rpush('analysis-queue',run.id)
+    run=Run(study_id=data.study_id,name=data.name,parameters=params,snapshot=snapshot,checksum=checksum(snapshot),created_at=now(),status='queued',request_key=request_key,request_hash=request_hash)
+    db.add(run)
+    try: db.flush()
+    except IntegrityError:
+        # Concurrent duplicate submission lost the unique-key race: return the winner.
+        db.rollback()
+        existing=db.scalar(select(Run).where(Run.request_key==request_key)) if request_key else None
+        if existing and existing.request_hash==request_hash: return record(existing)
+        raise HTTPException(409,'同一请求已受理且输入已冻结，换输入请修改表单后重新提交')
+    log(db,user,'run.queue',str(run.id));db.commit()
+    try: queueing.enqueue(run.id)
+    except Exception: logging.exception('enqueue failed for run %s; sweeper will redeliver',run.id)
     return record(run)
 
 def get(db,id):
